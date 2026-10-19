@@ -225,12 +225,14 @@ class ReAnimeProvider : MainAPI() {
             .sortedBy { if (it.audio.equals(preferredAudio, ignoreCase = true)) 0 else 1 }
 
         var found = false
+        val seenSubtitles = mutableSetOf<String>()
         servers.forEach { server ->
             val stream = runCatching { openStream(server.link) }.getOrNull() ?: return@forEach
             val audioLabel = if (server.audio.equals("dub", ignoreCase = true)) "Dub" else "Sub"
 
             stream.subtitles.forEach { (url, language) ->
-                subtitleCallback(newSubtitleFile(language, url))
+                // Sub and dub servers often point at the same tracks.
+                if (seenSubtitles.add(url)) subtitleCallback(newSubtitleFile(language, url))
             }
 
             stream.variants.forEach { variant ->

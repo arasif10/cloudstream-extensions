@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.newAnimeSearchResponse
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newSearchResponseList
+import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -62,6 +63,11 @@ class DesiDubAnimeProvider : MainAPI() {
     override val mainPage = mainPageOf(
         "popular" to "Popular",
         "latest" to "Recently Updated",
+        "added" to "Recently Added",
+        "rating" to "Top Rated",
+        "movies" to "Movies",
+        "tv" to "TV Series",
+        "ova" to "OVA",
     )
 
     private val app = Requests(defaultHeaders = mapOf("User-Agent" to USER_AGENT))
@@ -72,8 +78,19 @@ class DesiDubAnimeProvider : MainAPI() {
     // ============================== Catalogue ==============================
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        val orderBy = if (request.data == "latest") "updated" else "popular"
-        val (items, hasNext) = catalogue(page, "", orderBy)
+        val orderBy = when (request.data) {
+            "latest" -> "updated"
+            "added" -> "date"
+            "rating" -> "rating"
+            else -> "popular"
+        }
+        val type = when (request.data) {
+            "movies" -> "movie"
+            "tv" -> "tv"
+            "ova" -> "ova"
+            else -> null
+        }
+        val (items, hasNext) = catalogue(page, "", orderBy, type)
         return newHomePageResponse(request.name, items, hasNext)
     }
 
@@ -86,18 +103,22 @@ class DesiDubAnimeProvider : MainAPI() {
         page: Int,
         keyword: String,
         orderBy: String,
+        type: String? = null,
     ): Pair<List<SearchResponse>, Boolean> {
+        val fields = linkedMapOf(
+            "action" to "advanced_search",
+            "nonce" to searchNonce(),
+            "page" to page.toString(),
+            "s_keyword" to keyword,
+            "orderby" to orderBy,
+            "order" to "DESC",
+        )
+        type?.let { fields["type[]"] = it }
+
         val response = app.post(
             "$mainUrl/wp-admin/admin-ajax.php",
             headers = ajaxHeaders("$mainUrl/search/"),
-            data = linkedMapOf(
-                "action" to "advanced_search",
-                "nonce" to searchNonce(),
-                "page" to page.toString(),
-                "s_keyword" to keyword,
-                "orderby" to orderBy,
-                "order" to "DESC",
-            ),
+            data = fields,
         )
         val data = runCatching { JSONObject(response.text).optJSONObject("data") }.getOrNull()
             ?: return emptyList<SearchResponse>() to false
@@ -324,15 +345,22 @@ class DesiDubAnimeProvider : MainAPI() {
         }
         if (servers.isEmpty()) return false
 
+        // Subtitles are collected while the hosts are resolved; most of them carry
+        // none, but the HLS masters that do list them as EXT-X-MEDIA renditions.
+        val subtitles = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
         val links = coroutineScope {
             servers.map { server ->
                 async(Dispatchers.IO) {
                     withTimeoutOrNull(25_000L) {
-                        runCatching { resolveServer(server, pageUrl) }.getOrDefault(emptyList())
+                        runCatching { resolveServer(server, pageUrl, subtitles) }.getOrDefault(emptyList())
                     }.orEmpty()
                 }
             }.awaitAll()
         }.flatten()
+
+        subtitles.distinctBy { it.second }.forEach { (language, url) ->
+            subtitleCallback(newSubtitleFile(language, url))
+        }
 
         val ordered = links
             .distinctBy { it.url }
@@ -350,15 +378,20 @@ class DesiDubAnimeProvider : MainAPI() {
 
     private data class Audio(val language: String, val url: String)
 
-    private suspend fun resolveServer(server: Server, episodeUrl: String): List<ExtractorLink> {
+    private suspend fun resolveServer(
+        server: Server,
+        episodeUrl: String,
+        subtitles: MutableList<Pair<String, String>>,
+    ): List<ExtractorLink> {
         val url = payloadUrl(server.payload) ?: return emptyList()
         return when {
             url.contains("abyssplayer.com") || url.contains("p2pplay.pro") -> emptyList()
             url.contains("filesforever.link/embed/") ->
-                resolveFilesForever(url.substringAfterLast("/"))
+                resolveFilesForever(url.substringAfterLast("/"), subtitles)
 
-            url.contains("vidmoly") -> resolvePlainPage(url, server.label.ifBlank { "Vidmoly" }, episodeUrl)
-            else -> resolvePlainPage(url, server.label.ifBlank { "Server" }, episodeUrl)
+            url.contains("vidmoly") ->
+                resolvePlainPage(url, server.label.ifBlank { "Vidmoly" }, episodeUrl, subtitles)
+            else -> resolvePlainPage(url, server.label.ifBlank { "Server" }, episodeUrl, subtitles)
         }
     }
 
@@ -377,7 +410,10 @@ class DesiDubAnimeProvider : MainAPI() {
      * filesforever exposes its sub-hosts through embedhelper2.php; only StreamHG
      * (packed JWPlayer) and StreamTape answer with a static stream.
      */
-    private suspend fun resolveFilesForever(sid: String): List<ExtractorLink> {
+    private suspend fun resolveFilesForever(
+        sid: String,
+        subtitles: MutableList<Pair<String, String>>,
+    ): List<ExtractorLink> {
         if (sid.isBlank()) return emptyList()
         val referer = "https://filesforever.link/embed/$sid"
         val response = runCatching {
@@ -415,7 +451,7 @@ class DesiDubAnimeProvider : MainAPI() {
             if (key == "strmtp") {
                 found += resolveStreamTape(playerUrl, name, sid)
             } else {
-                found += resolvePackedPage(playerUrl, name, referer)
+                found += resolvePackedPage(playerUrl, name, referer, subtitles)
             }
         }
         return found
@@ -443,22 +479,24 @@ class DesiDubAnimeProvider : MainAPI() {
         playerUrl: String,
         name: String,
         referer: String,
+        subtitles: MutableList<Pair<String, String>>,
     ): List<ExtractorLink> {
         val html = tryGet(playerUrl, referer) ?: return emptyList()
         val masterUrl = decodePackedStreamUrl(html, playerUrl) ?: return emptyList()
-        return hlsLinks(masterUrl, name, playerUrl)
+        return hlsLinks(masterUrl, name, playerUrl, subtitles)
     }
 
     private suspend fun resolvePlainPage(
         embedUrl: String,
         name: String,
         referer: String,
+        subtitles: MutableList<Pair<String, String>>,
     ): List<ExtractorLink> {
         val html = tryGet(embedUrl, referer) ?: return emptyList()
         val masterUrl = decodePackedStreamUrl(html, embedUrl)
             ?: M3U8_REGEX.find(html)?.value
             ?: return emptyList()
-        return hlsLinks(masterUrl, name, embedUrl)
+        return hlsLinks(masterUrl, name, embedUrl, subtitles)
     }
 
     /**
@@ -470,8 +508,10 @@ class DesiDubAnimeProvider : MainAPI() {
         masterUrl: String,
         serverName: String,
         referer: String,
+        subtitles: MutableList<Pair<String, String>>,
     ): List<ExtractorLink> {
         val playlist = tryGet(masterUrl, referer) ?: return emptyList()
+        subtitles += parseSubtitles(playlist, masterUrl)
         val variants = parseVariants(playlist, masterUrl)
         val audios = parseAudio(playlist, masterUrl)
         val links = mutableListOf<ExtractorLink>()
@@ -539,6 +579,16 @@ class DesiDubAnimeProvider : MainAPI() {
                 url = resolveUrl(uri, masterUrl),
             )
         }.distinctBy { it.url }.toList()
+
+    /** Subtitle renditions of a master playlist, when the host ships any. */
+    private fun parseSubtitles(playlist: String, masterUrl: String): List<Pair<String, String>> =
+        SUBTITLE_MEDIA_REGEX.findAll(playlist).mapNotNull { match ->
+            val line = match.value
+            val uri = AUDIO_URI_REGEX.find(line)?.groupValues?.get(1) ?: return@mapNotNull null
+            val language = AUDIO_LANGUAGE_REGEX.find(line)?.groupValues?.get(1).orEmpty()
+            val name = AUDIO_NAME_REGEX.find(line)?.groupValues?.get(1).orEmpty()
+            englishAudioName(name, language) to resolveUrl(uri, masterUrl)
+        }.distinctBy { it.second }.toList()
 
     /** index-v1-a2.m3u8 + index-a4.m3u8 -> index-v1-a4.m3u8 */
     private fun rewriteAudio(variantUrl: String, audioUrl: String): String? {
@@ -691,6 +741,7 @@ class DesiDubAnimeProvider : MainAPI() {
         private val YEAR_IN_AIRED_REGEX = Regex("""\b(19|20)\d{2}\b""")
 
         private val AUDIO_MEDIA_REGEX = Regex("""#EXT-X-MEDIA:TYPE=AUDIO[^\r\n]*""")
+        private val SUBTITLE_MEDIA_REGEX = Regex("""#EXT-X-MEDIA:TYPE=SUBTITLES[^\r\n]*""")
         private val AUDIO_URI_REGEX = Regex("""URI="([^"]+)"""")
         private val AUDIO_LANGUAGE_REGEX = Regex("""LANGUAGE="([^"]+)"""")
         private val AUDIO_NAME_REGEX = Regex("""NAME="([^"]+)"""")
