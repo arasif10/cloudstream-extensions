@@ -64,7 +64,6 @@ class DesiDubAnimeProvider : MainAPI() {
         "popular" to "Popular",
         "latest" to "Recently Updated",
         "added" to "Recently Added",
-        "rating" to "Top Rated",
         "movies" to "Movies",
         "tv" to "TV Series",
         "ova" to "OVA",
@@ -81,7 +80,6 @@ class DesiDubAnimeProvider : MainAPI() {
         val orderBy = when (request.data) {
             "latest" -> "updated"
             "added" -> "date"
-            "rating" -> "rating"
             else -> "popular"
         }
         val type = when (request.data) {
