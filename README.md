@@ -18,7 +18,8 @@ and publishes `plugins.json` plus the `.cs3` files to the `builds` branch.
 | Plugin | Language | Content |
 | --- | --- | --- |
 | ReAnime | en | Anime sub/dub from Re:ANIME (AniList metadata, FlixCloud streams) |
-| DesiDubAnime | all | Hindi/Tamil/Telugu/English dubs from DesiDubAnime |
+| DesiDubAnime | hi | Hindi/Tamil/Telugu/English dubs from DesiDubAnime |
+| MyAnimes | hi | Hindi/Tamil/Telugu/English anime and movies from MyAnimes, one stream per audio track |
 
 ## Add another provider
 
