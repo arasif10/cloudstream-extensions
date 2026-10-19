@@ -28,6 +28,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.jsoup.Jsoup
@@ -51,7 +53,10 @@ class DesiDubAnimeProvider : MainAPI() {
 
     override var mainUrl = "https://www.desidubanime.me"
     override var name = "DesiDubAnime"
-    override var lang = "all"
+
+    // Hindi is the site's main dub language and what the app uses to draw the
+    // provider's flag; the catalogue itself also carries Tamil, Telugu and English.
+    override var lang = "hi"
     override val hasMainPage = true
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -67,12 +72,30 @@ class DesiDubAnimeProvider : MainAPI() {
         "movies" to "Movies",
         "tv" to "TV Series",
         "ova" to "OVA",
+        "genre:action" to "Action",
+        "genre:adventure" to "Adventure",
+        "genre:comedy" to "Comedy",
+        "genre:drama" to "Drama",
+        "genre:fantasy" to "Fantasy",
+        "genre:romance" to "Romance",
+        "genre:isekai" to "Isekai",
+        "genre:slice-of-life" to "Slice of Life",
+        "genre:sci-fi" to "Sci-Fi",
+        "genre:supernatural" to "Supernatural",
+        "genre:mystery" to "Mystery",
+        "genre:horror" to "Horror",
     )
 
     private val app = Requests(defaultHeaders = mapOf("User-Agent" to USER_AGENT))
 
-    /** The theme's admin-ajax nonce, read once from any page. */
+    /**
+     * The theme's admin-ajax nonce, read once per install.
+     *
+     * The app asks for every main-page row at the same time, so without the lock
+     * all of them would download /search/ just to read the same nonce.
+     */
     private var cachedNonce: String? = null
+    private val nonceMutex = Mutex()
 
     // ============================== Catalogue ==============================
 
@@ -88,7 +111,8 @@ class DesiDubAnimeProvider : MainAPI() {
             "ova" -> "ova"
             else -> null
         }
-        val (items, hasNext) = catalogue(page, "", orderBy, type)
+        val genre = request.data.removePrefix("genre:").takeIf { request.data.startsWith("genre:") }
+        val (items, hasNext) = catalogue(page, "", orderBy, type, genre)
         return newHomePageResponse(request.name, items, hasNext)
     }
 
@@ -102,6 +126,7 @@ class DesiDubAnimeProvider : MainAPI() {
         keyword: String,
         orderBy: String,
         type: String? = null,
+        genre: String? = null,
     ): Pair<List<SearchResponse>, Boolean> {
         val fields = linkedMapOf(
             "action" to "advanced_search",
@@ -112,6 +137,7 @@ class DesiDubAnimeProvider : MainAPI() {
             "order" to "DESC",
         )
         type?.let { fields["type[]"] = it }
+        genre?.let { fields["genre[]"] = it }
 
         val response = app.post(
             "$mainUrl/wp-admin/admin-ajax.php",
@@ -129,10 +155,13 @@ class DesiDubAnimeProvider : MainAPI() {
 
     private suspend fun searchNonce(): String {
         cachedNonce?.let { return it }
-        val html = app.get("$mainUrl/search/", headers = headers()).text
-        val nonce = NONCE_REGEX.find(html)?.groupValues?.get(1).orEmpty()
-        if (nonce.isNotBlank()) cachedNonce = nonce
-        return nonce
+        return nonceMutex.withLock {
+            cachedNonce ?: run {
+                val html = app.get("$mainUrl/search/", headers = headers()).text
+                NONCE_REGEX.find(html)?.groupValues?.get(1).orEmpty()
+                    .also { nonce -> if (nonce.isNotBlank()) cachedNonce = nonce }
+            }
+        }
     }
 
     /**

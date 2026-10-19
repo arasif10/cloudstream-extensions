@@ -1,5 +1,5 @@
 // Plugin version, bump for every release users should receive
-version = 2
+version = 3
 
 cloudstream {
     description = "Anime streaming from Re:ANIME, sub and dub"

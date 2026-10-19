@@ -53,6 +53,17 @@ class ReAnimeProvider : MainAPI() {
         "popular" to "Popular",
         "latest" to "Latest",
         "movies" to "Movies",
+        "tv" to "TV Series",
+        "ova" to "OVA",
+        "top" to "Top Rated",
+        "airing" to "Airing Now",
+        "genre:Action" to "Action",
+        "genre:Adventure" to "Adventure",
+        "genre:Comedy" to "Comedy",
+        "genre:Drama" to "Drama",
+        "genre:Fantasy" to "Fantasy",
+        "genre:Romance" to "Romance",
+        "genre:Supernatural" to "Supernatural",
     )
 
     private val app = Requests(defaultHeaders = mapOf("User-Agent" to USER_AGENT))
@@ -71,17 +82,25 @@ class ReAnimeProvider : MainAPI() {
     // ============================== Home page ==============================
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? =
-        when (request.data) {
-            "latest" -> latestPage(page, request.name)
-            "movies" -> cataloguePage(page, request.name, sort = "popularity_desc", format = "movie")
-            else -> cataloguePage(page, request.name, sort = "popularity_desc")
+        when {
+            request.data == "latest" -> latestPage(page, request.name)
+            request.data == "movies" -> cataloguePage(page, request.name, format = "movie")
+            request.data == "tv" -> cataloguePage(page, request.name, format = "tv")
+            request.data == "ova" -> cataloguePage(page, request.name, format = "ova")
+            request.data == "top" -> cataloguePage(page, request.name, sort = "score_desc")
+            request.data == "airing" -> cataloguePage(page, request.name, status = "RELEASING")
+            request.data.startsWith("genre:") ->
+                cataloguePage(page, request.name, genre = request.data.removePrefix("genre:"))
+            else -> cataloguePage(page, request.name)
         }
 
     private suspend fun cataloguePage(
         page: Int,
         sectionName: String,
-        sort: String,
+        sort: String = "popularity_desc",
         format: String? = null,
+        genre: String? = null,
+        status: String? = null,
     ): HomePageResponse {
         val params = linkedMapOf(
             "limit" to LIMIT.toString(),
@@ -89,6 +108,8 @@ class ReAnimeProvider : MainAPI() {
             "sort" to sort,
         )
         format?.let { params["format"] = it }
+        genre?.let { params["genre"] = it }
+        status?.let { params["status"] = it }
 
         val json = getJson("$api/search", "$mainUrl/search", params)
         val items = json.optJSONArray("results").objects().mapNotNull { it.toSearchResponse() }
