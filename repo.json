@@ -1,0 +1,8 @@
+{
+    "name": "arasif10 CloudStream plugins",
+    "description": "Re:ANIME and DesiDubAnime for CloudStream",
+    "manifestVersion": 1,
+    "pluginLists": [
+        "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/builds/plugins.json"
+    ]
+}

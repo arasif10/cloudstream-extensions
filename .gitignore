@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+*/build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Android
+*.apk
+*.aab
+captures/
+
+# The build outputs live on the builds branch, never in source
+builds/
+*.cs3
+*.dex
+
+# Local build logs
+*.log
