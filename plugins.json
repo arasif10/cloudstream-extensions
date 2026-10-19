@@ -1,0 +1,65 @@
+[
+    {
+        "iconUrl": "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/master/icons/desidubanime.png",
+        "fileHash": "sha256-639e82f3ae56aa55a7f69983f0996c18ec862d7b61240edcb45b47fe9a5101db",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/arasif10/cloudstream-extensions",
+        "fileSize": 46933,
+        "status": 1,
+        "authors": [
+            "arasif10"
+        ],
+        "tvTypes": [
+            "Anime",
+            "TvSeries",
+            "Cartoon"
+        ],
+        "version": 3,
+        "internalName": "DesiDubAnime",
+        "description": "Hindi, Tamil, Telugu and English dubs of anime and cartoons from DesiDubAnime",
+        "url": "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/builds/DesiDubAnime.cs3",
+        "name": "DesiDubAnime"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/master/icons/myanimes.png",
+        "fileHash": "sha256-49c425641c96ba386c47f6290506fa55ea6e2069d6cdbc58dcb545fa4206e593",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/arasif10/cloudstream-extensions",
+        "fileSize": 28207,
+        "status": 1,
+        "authors": [
+            "arasif10"
+        ],
+        "tvTypes": [
+            "Anime",
+            "AnimeMovie",
+            "TvSeries"
+        ],
+        "version": 3,
+        "internalName": "MyAnimes",
+        "description": "Hindi, Tamil, Telugu and English anime and anime movies from MyAnimes",
+        "url": "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/builds/MyAnimes.cs3",
+        "name": "MyAnimes"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/master/icons/reanime.png",
+        "fileHash": "sha256-9328afbd8e74ee32bc44aad97fb5d1274774c532e29e22b670197aa9b01d7478",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/arasif10/cloudstream-extensions",
+        "fileSize": 50389,
+        "status": 1,
+        "authors": [
+            "arasif10"
+        ],
+        "tvTypes": [
+            "Anime",
+            "TvSeries",
+            "OVA"
+        ],
+        "version": 3,
+        "internalName": "ReAnime",
+        "description": "Anime streaming from Re:ANIME, sub and dub",
+        "url": "https://raw.githubusercontent.com/arasif10/cloudstream-extensions/builds/ReAnime.cs3",
+        "name": "ReAnime"
+    }
+]
