@@ -40,7 +40,9 @@ jobs:
           java-version: 17
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        # v3 runs an sdkmanager call that no longer resolves; the official
+        # CloudStream workflow pins v2 for the same reason.
+        uses: android-actions/setup-android@v2
 
       - name: Build plugins
         run: |
