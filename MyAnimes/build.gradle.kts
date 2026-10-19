@@ -1,5 +1,5 @@
 // Plugin version, bump for every release users should receive
-version = 2
+version = 3
 
 cloudstream {
     description = "Hindi, Tamil, Telugu and English anime and anime movies from MyAnimes"

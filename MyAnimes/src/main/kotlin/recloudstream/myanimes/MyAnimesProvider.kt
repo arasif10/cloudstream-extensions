@@ -31,6 +31,8 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
@@ -343,15 +345,19 @@ class MyAnimesProvider : MainAPI() {
             Log.e(TAG, "no datas for $language (${html.length} chars)")
             return emptyList()
         }
+
+        // The decoder only answers a real JSON body; nicehttp's `json` shortcut
+        // sends a form body for some values, so the request body is built here.
+        val payload = JSONObject(mapOf("text" to blob)).toString()
         val decoded = runCatching {
             app.post(
                 "$ENC_DEC_API/dec-abyss",
                 headers = mapOf(
-                    "Content-Type" to "application/json",
+                    "Accept" to "application/json",
                     "Origin" to ENC_DEC_API,
                     "User-Agent" to USER_AGENT,
                 ),
-                json = JSONObject(mapOf("text" to blob)),
+                requestBody = payload.toRequestBody(JSON_MEDIA_TYPE),
                 cacheTime = 0,
             ).text
         }.getOrNull()
@@ -395,6 +401,7 @@ class MyAnimesProvider : MainAPI() {
         private const val ENC_DEC_API = "https://enc-dec.app"
         private const val ABYSS_REFERER = "https://playhydrax.com/"
         private const val TAG = "MyAnimes"
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val LANGUAGE_PREFIX = "lang:"
         private const val HOME_CACHE_MS = 5 * 60 * 1000L
 
