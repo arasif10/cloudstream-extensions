@@ -30,8 +30,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Log
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
 import java.net.URLEncoder
 
 /**
@@ -230,12 +232,19 @@ class MyAnimesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
         val pageUrl = data
-        val document = Jsoup.parse(app.get(pageUrl, headers = headers(pageUrl)).text, pageUrl)
+        val html = app.get(pageUrl, headers = headers(pageUrl)).text
+        val document = Jsoup.parse(html, pageUrl)
 
-        val sources = document.select("[data-sources]")
-            .mapNotNull { element -> runCatching { JSONArray(element.attr("data-sources")) }.getOrNull() }
+        // The JSON lives in an HTML attribute, so it can arrive either already
+        // decoded by the parser or still entity encoded.
+        val sourceJson = document.select("[data-sources]").map { it.attr("data-sources") }
+            .ifEmpty { SOURCES_ATTR_REGEX.findAll(html).map { it.groupValues[1] }.toList() }
+        val sources = sourceJson
+            .mapNotNull { raw -> runCatching { JSONArray(Parser.unescapeEntities(raw, true)) }.getOrNull() }
             .flatMap { array -> (0 until array.length()).mapNotNull { array.optJSONObject(it) } }
             .distinctBy { it.optString("url") }
+
+        Log.d(TAG, "loadLinks $pageUrl sources=${sources.size}")
 
         var found = false
         for (source in sources) {
@@ -258,6 +267,7 @@ class MyAnimesProvider : MainAPI() {
                     )
                     found = true
                 }
+                else -> Log.d(TAG, "skipping source $url")
             }
             // streamp2p.php is a peer-to-peer player; it never exposes a media URL.
         }
@@ -276,12 +286,21 @@ class MyAnimesProvider : MainAPI() {
     ): Boolean {
         val playerHtml = runCatching {
             app.get(playerUrl, headers = headers(pageUrl), cacheTime = 0).text
-        }.getOrNull() ?: return false
+        }.getOrNull()
+        if (playerHtml == null) {
+            Log.e(TAG, "hydrax fetch failed $playerUrl")
+            return false
+        }
 
-        val tracksJson = TRACKS_REGEX.find(playerHtml)?.groupValues?.get(1) ?: return false
-        val tracks = runCatching { JSONObject(tracksJson) }.getOrNull() ?: return false
+        val tracksJson = TRACKS_REGEX.find(playerHtml)?.groupValues?.get(1)
+        val tracks = tracksJson?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (tracks == null) {
+            Log.e(TAG, "no tracks on $playerUrl (${playerHtml.length} chars)")
+            return false
+        }
         val languages = tracks.keys().asSequence().toList()
         if (languages.isEmpty()) return false
+        Log.d(TAG, "hydrax languages=$languages")
 
         val resolved = coroutineScope {
             languages.map { language ->
@@ -297,7 +316,11 @@ class MyAnimesProvider : MainAPI() {
                     url = url,
                     type = linkType(url),
                 ) {
-                    this.referer = "https://playhydrax.com/"
+                    this.referer = ABYSS_REFERER
+                    this.headers = mapOf(
+                        "User-Agent" to USER_AGENT,
+                        "Referer" to ABYSS_REFERER,
+                    )
                     this.quality = getQualityFromName(quality)
                 },
             )
@@ -308,10 +331,18 @@ class MyAnimesProvider : MainAPI() {
     private suspend fun abyssSources(language: String, playerUrl: String): List<Triple<String, String, String>> {
         if (playerUrl.isBlank()) return emptyList()
         val html = runCatching {
-            app.get(playerUrl, headers = headers("https://playhydrax.com/"), cacheTime = 0).text
-        }.getOrNull() ?: return emptyList()
+            app.get(playerUrl, headers = headers(ABYSS_REFERER), cacheTime = 0).text
+        }.getOrNull()
+        if (html == null) {
+            Log.e(TAG, "abyss fetch failed $language")
+            return emptyList()
+        }
 
-        val blob = DATAS_REGEX.find(html)?.groupValues?.get(1) ?: return emptyList()
+        val blob = DATAS_REGEX.find(html)?.groupValues?.get(1)
+        if (blob == null) {
+            Log.e(TAG, "no datas for $language (${html.length} chars)")
+            return emptyList()
+        }
         val decoded = runCatching {
             app.post(
                 "$ENC_DEC_API/dec-abyss",
@@ -323,11 +354,19 @@ class MyAnimesProvider : MainAPI() {
                 json = JSONObject(mapOf("text" to blob)),
                 cacheTime = 0,
             ).text
-        }.getOrNull() ?: return emptyList()
+        }.getOrNull()
+        if (decoded == null) {
+            Log.e(TAG, "decode failed for $language")
+            return emptyList()
+        }
 
         val sourcesArray = runCatching {
             JSONObject(decoded).optJSONObject("result")?.optJSONArray("sources")
-        }.getOrNull() ?: return emptyList()
+        }.getOrNull()
+        if (sourcesArray == null) {
+            Log.e(TAG, "no sources for $language: ${decoded.take(160)}")
+            return emptyList()
+        }
 
         return (0 until sourcesArray.length()).mapNotNull { index ->
             val source = sourcesArray.optJSONObject(index) ?: return@mapNotNull null
@@ -354,10 +393,13 @@ class MyAnimesProvider : MainAPI() {
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
         private const val ENC_DEC_API = "https://enc-dec.app"
+        private const val ABYSS_REFERER = "https://playhydrax.com/"
+        private const val TAG = "MyAnimes"
         private const val LANGUAGE_PREFIX = "lang:"
         private const val HOME_CACHE_MS = 5 * 60 * 1000L
 
         private val TRACKS_REGEX = Regex("""var\s+tracks\s*=\s*(\{.*?\})\s*;""", RegexOption.DOT_MATCHES_ALL)
+        private val SOURCES_ATTR_REGEX = Regex("""data-sources="([^"]*)""")
         private val DATAS_REGEX = Regex("""const\s+datas\s*=\s*"([^"]+)"""")
         private val YEAR_REGEX = Regex("""\b(?:19|20)\d{2}\b""")
         private val EPISODE_REGEX = Regex("""-(\d+)x(\d+)/?$""")
