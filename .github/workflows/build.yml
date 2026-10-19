@@ -39,10 +39,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Android SDK
-        # v3 runs an sdkmanager call that no longer resolves; the official
-        # CloudStream workflow pins v2 for the same reason.
-        uses: android-actions/setup-android@v2
+      # The runner image already ships an Android SDK with accepted licenses, so
+      # only the path has to be handed to Gradle; AGP downloads platform 35.
+      - name: Point Gradle at the Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > src/local.properties
 
       - name: Build plugins
         run: |
