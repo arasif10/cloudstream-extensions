@@ -52,7 +52,15 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew make makePluginsJson
+          # The CloudStream tooling is consumed from JitPack as a snapshot, and a
+          # snapshot that is still being built answers 404. Retry before failing.
+          built=0
+          for attempt in 1 2 3 4; do
+            if ./gradlew make makePluginsJson; then built=1; break; fi
+            echo "Gradle attempt $attempt failed, retrying in 30s"
+            sleep 30
+          done
+          if [ "$built" != "1" ]; then exit 1; fi
           ./gradlew ensureJarCompatibility
           cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
           cp **/build/*.jar $GITHUB_WORKSPACE/builds || true
